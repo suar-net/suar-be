@@ -149,20 +149,32 @@ func (s *Service) Execute(ctx context.Context, outboundRequest *OutboundRequest)
 func httpResponseToDTOResponse(resp *http.Response, duration time.Duration, timestamp time.Time) (*model.DTOResponse, error) {
 	defer resp.Body.Close()
 
+	headers := make(map[string][]string)
+	for key, values := range resp.Header {
+		headers[key] = values
+	}
+
 	limitedReader := &io.LimitedReader{R: resp.Body, N: maxResponseBodySize}
 	bodyBytes, err := io.ReadAll(limitedReader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
 
 	dtoResponse := &model.DTOResponse{
 		StatusCode: resp.StatusCode,
 		Duration:   duration,
 		Timestamp:  timestamp,
-		Size:       int64(len(bodyBytes)),
-		Headers:    resp.Header,
-		Body:       bodyBytes,
-		Error:      "",
+		Headers:    headers,
+	}
+
+	if err != nil {
+		dtoResponse.Error = fmt.Sprintf("failed to read response body: %v", err)
+		dtoResponse.Size = 0
+		dtoResponse.Body = nil
+	} else {
+		dtoResponse.Size = int64(len(bodyBytes))
+		dtoResponse.Body = bodyBytes
+		// Check if response was truncated
+		if limitedReader.N <= 0 {
+			dtoResponse.Error = "response body truncated due to size limit"
+		}
 	}
 
 	return dtoResponse, nil
