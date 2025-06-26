@@ -7,12 +7,28 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/suar-net/suar-be/internal/model"
 )
 
-// OutboundRequest represents a request to be sent to an external service.
+const (
+	maxResponseBodySize   = 10 * 1024 * 1024 // 10 MB
+	defaultRequestTimeout = 30 * time.Second
+	maxRequestTimeout     = 90 * time.Second
+)
+
+var allowedMethods = map[string]bool{
+	http.MethodGet:     true,
+	http.MethodPost:    true,
+	http.MethodPut:     true,
+	http.MethodDelete:  true,
+	http.MethodPatch:   true,
+	http.MethodHead:    true,
+	http.MethodOptions: true,
+}
+
 type OutboundRequest struct {
 	Method  string
 	URL     *url.URL
@@ -22,19 +38,47 @@ type OutboundRequest struct {
 }
 
 func newOutboundRequest(dto *model.DTORequest) (*OutboundRequest, error) {
-	// Parse the URL from the DTO
-	parsedURL, err := url.Parse(dto.URL)
-	if err != nil {
-		return nil, err
+	// HTTP Method Validation
+	dto.Method = strings.ToUpper(dto.Method)
+	if !allowedMethods[dto.Method] {
+		return nil, fmt.Errorf("invalid or unsupported HTTP method: %s", dto.Method)
 	}
 
-	// Create the outbound request
+	// URL Validation
+	if dto.URL == "" {
+		return nil, fmt.Errorf("URL cannot be empty")
+	}
+	parsedURL, err := url.Parse(dto.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URL: %w", err)
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, fmt.Errorf("invalid URL scheme: %s. Only 'http' and 'https' are allowed", parsedURL.Scheme)
+	}
+
+	// Timeout Validation
+	var timeout time.Duration
+	if dto.Timeout <= 0 {
+		timeout = defaultRequestTimeout
+	} else {
+		timeout = time.Duration(dto.Timeout) * time.Millisecond
+	}
+	if timeout > maxRequestTimeout {
+		return nil, fmt.Errorf("timeout of %v exceeds the maximum allowed limit of %v", timeout, maxRequestTimeout)
+	}
+
+	headers := make(http.Header)
+	for key, values := range dto.Headers {
+		headers[key] = values
+	}
+
+	// Create the outbound request with validated data
 	request := &OutboundRequest{
 		Method:  dto.Method,
 		URL:     parsedURL,
-		Headers: http.Header(dto.Headers),
+		Headers: headers,
 		Body:    dto.Body,
-		Timeout: time.Duration(dto.Timeout) * time.Millisecond,
+		Timeout: timeout,
 	}
 
 	return request, nil
@@ -50,9 +94,22 @@ func NewService() *Service {
 	}
 }
 
-// Execute is the single public method for running a request.
-// It orchestrates the creation, timeout handling, and execution.
-func (s *Service) Execute(ctx context.Context, outboundRequest *OutboundRequest) (httpResponse *http.Response, err error) {
+func (s *Service) ProcessRequest(ctx context.Context, dto *model.DTORequest) (*model.DTOResponse, error) {
+	// Convert and validate the DTO to our internal request model.
+	outboundRequest, err := newOutboundRequest(dto)
+	if err != nil {
+		return &model.DTOResponse{
+			Error:     fmt.Sprintf("invalid request input: %v", err),
+			Timestamp: time.Now(),
+		}, nil
+	}
+
+	return s.Execute(ctx, outboundRequest)
+}
+
+func (s *Service) Execute(ctx context.Context, outboundRequest *OutboundRequest) (*model.DTOResponse, error) {
+	startTime := time.Now()
+
 	reqCtx, cancel := context.WithTimeout(ctx, outboundRequest.Timeout)
 	defer cancel()
 
@@ -68,13 +125,45 @@ func (s *Service) Execute(ctx context.Context, outboundRequest *OutboundRequest)
 		bodyReader,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create http request: %w", err)
+		return &model.DTOResponse{
+			Error:     fmt.Sprintf("failed to create http request: %v", err),
+			Duration:  time.Since(startTime),
+			Timestamp: startTime,
+		}, nil
 	}
 	httpRequest.Header = outboundRequest.Headers
 
-	response, err := s.httpClient.Do(httpRequest)
+	httpResponse, err := s.httpClient.Do(httpRequest)
+	duration := time.Since(startTime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return &model.DTOResponse{
+			Error:     fmt.Sprintf("failed to execute request to target server: %v", err),
+			Duration:  duration,
+			Timestamp: startTime,
+		}, nil
 	}
-	return response, nil
+
+	return httpResponseToDTOResponse(httpResponse, duration, startTime)
+}
+
+func httpResponseToDTOResponse(resp *http.Response, duration time.Duration, timestamp time.Time) (*model.DTOResponse, error) {
+	defer resp.Body.Close()
+
+	limitedReader := &io.LimitedReader{R: resp.Body, N: maxResponseBodySize}
+	bodyBytes, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	dtoResponse := &model.DTOResponse{
+		StatusCode: resp.StatusCode,
+		Duration:   duration,
+		Timestamp:  timestamp,
+		Size:       int64(len(bodyBytes)),
+		Headers:    resp.Header,
+		Body:       bodyBytes,
+		Error:      "",
+	}
+
+	return dtoResponse, nil
 }
