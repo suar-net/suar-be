@@ -3,8 +3,10 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -37,23 +39,56 @@ type OutboundRequest struct {
 	Timeout time.Duration
 }
 
+var blockedHeaders = map[string]bool{
+	"Authorization": true,
+	"Cookie":        true,
+	"Proxy-Authorization": true,
+	"X-Forwarded-For": true,
+}
+
+// isPrivateIP checks if a given IP address is private.
+func isPrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	ip4 := ip.To4()
+	if ip4 != nil {
+		return ip4[0] == 10 ||
+			(ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31) ||
+			(ip4[0] == 192 && ip4[1] == 168)
+	}
+	return false
+}
+
+
 func newOutboundRequest(dto *model.DTORequest) (*OutboundRequest, error) {
 	// HTTP Method Validation
 	dto.Method = strings.ToUpper(dto.Method)
 	if !allowedMethods[dto.Method] {
-		return nil, fmt.Errorf("invalid or unsupported HTTP method: %s", dto.Method)
+		return nil, fmt.Errorf("%w: invalid or unsupported HTTP method: %s", ErrInvalidInput, dto.Method)
 	}
 
 	// URL Validation
 	if dto.URL == "" {
-		return nil, fmt.Errorf("URL cannot be empty")
+		return nil, fmt.Errorf("%w: URL cannot be empty", ErrInvalidInput)
 	}
 	parsedURL, err := url.Parse(dto.URL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse URL: %w", err)
+		return nil, fmt.Errorf("%w: failed to parse URL: %v", ErrInvalidInput, err)
 	}
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return nil, fmt.Errorf("invalid URL scheme: %s. Only 'http' and 'https' are allowed", parsedURL.Scheme)
+		return nil, fmt.Errorf("%w: invalid URL scheme: %s. Only 'http' and 'https' are allowed", ErrInvalidInput, parsedURL.Scheme)
+	}
+
+	// SSRF Protection: Disallow requests to private/local IP addresses
+	ips, err := net.LookupIP(parsedURL.Hostname())
+	if err != nil {
+		return nil, fmt.Errorf("%w: could not resolve hostname: %v", ErrInvalidInput, err)
+	}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return nil, fmt.Errorf("%w: requests to private IP addresses are not allowed", ErrInvalidInput)
+		}
 	}
 
 	// Timeout Validation
@@ -64,12 +99,14 @@ func newOutboundRequest(dto *model.DTORequest) (*OutboundRequest, error) {
 		timeout = time.Duration(dto.Timeout) * time.Millisecond
 	}
 	if timeout > maxRequestTimeout {
-		return nil, fmt.Errorf("timeout of %v exceeds the maximum allowed limit of %v", timeout, maxRequestTimeout)
+		return nil, fmt.Errorf("%w: timeout of %v exceeds the maximum allowed limit of %v", ErrInvalidInput, timeout, maxRequestTimeout)
 	}
 
 	headers := make(http.Header)
 	for key, values := range dto.Headers {
-		headers[key] = values
+		if !blockedHeaders[http.CanonicalHeaderKey(key)] {
+			headers[key] = values
+		}
 	}
 
 	// Create the outbound request with validated data
@@ -84,30 +121,37 @@ func newOutboundRequest(dto *model.DTORequest) (*OutboundRequest, error) {
 	return request, nil
 }
 
-type Service struct {
+type HTTPProxyService struct {
 	httpClient *http.Client
 }
 
-func NewService() *Service {
-	return &Service{
-		httpClient: &http.Client{},
+func NewHTTPProxyService() *HTTPProxyService {
+	// Create a custom transport with optimized settings
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	return &HTTPProxyService{
+		httpClient: &http.Client{
+			Transport: transport,
+		},
 	}
 }
 
-func (s *Service) ProcessRequest(ctx context.Context, dto *model.DTORequest) (*model.DTOResponse, error) {
+func (s *HTTPProxyService) ProcessRequest(ctx context.Context, dto *model.DTORequest) (*model.DTOResponse, error) {
 	// Convert and validate the DTO to our internal request model.
 	outboundRequest, err := newOutboundRequest(dto)
 	if err != nil {
-		return &model.DTOResponse{
-			Error:     fmt.Sprintf("invalid request input: %v", err),
-			Timestamp: time.Now(),
-		}, nil
+		return nil, err // Propagate the error
 	}
 
 	return s.Execute(ctx, outboundRequest)
 }
 
-func (s *Service) Execute(ctx context.Context, outboundRequest *OutboundRequest) (*model.DTOResponse, error) {
+func (s *HTTPProxyService) Execute(ctx context.Context, outboundRequest *OutboundRequest) (*model.DTOResponse, error) {
 	startTime := time.Now()
 
 	reqCtx, cancel := context.WithTimeout(ctx, outboundRequest.Timeout)
@@ -135,12 +179,12 @@ func (s *Service) Execute(ctx context.Context, outboundRequest *OutboundRequest)
 
 	httpResponse, err := s.httpClient.Do(httpRequest)
 	duration := time.Since(startTime)
+	// We check for context timeout error specifically
 	if err != nil {
-		return &model.DTOResponse{
-			Error:     fmt.Sprintf("failed to execute request to target server: %v", err),
-			Duration:  duration,
-			Timestamp: startTime,
-		}, nil
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("%w: %v", ErrRequestTimeout, err)
+		}
+		return nil, fmt.Errorf("failed to execute request to target server: %w", err)
 	}
 
 	return httpResponseToDTOResponse(httpResponse, duration, startTime)

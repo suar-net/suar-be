@@ -1,14 +1,16 @@
 package handler
 
 import (
+	"log"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
 
 // SetupRouter creates the main Chi router for the application.
-// It takes the service as a dependency to inject it into the handlers.
-func SetupRouter(s ProxyService) *chi.Mux {
+// It takes the service and a logger as dependencies to inject into the handlers.
+func SetupRouter(s HTTPProxyService, logger *log.Logger) *chi.Mux {
 	// Create a new Chi router instance.
 	r := chi.NewRouter()
 
@@ -34,15 +36,15 @@ func SetupRouter(s ProxyService) *chi.Mux {
 
 	// --- Route Definitions ---
 
-	// Create an instance of our requester handler, injecting the service.
-	requesterHandler := NewRequesterHandler(s)
+	// Create an instance of our requester handler, injecting the service and logger.
+	httpProxyHandler := NewHTTPProxyHandler(s, logger)
 
 	// We'll group our API endpoints under a versioned path.
 	r.Route("/api/v1", func(r chi.Router) {
 		// Mount the handler for the specific endpoint.
 		// We use r.Mount to delegate all methods, but our handler only accepts POST.
-		// Alternatively, you could use r.Post("/request", requesterHandler.ServeHTTP)
-		r.Mount("/request", requesterHandler)
+		// Alternatively, you could use r.Post("/request", httpProxyHandler.ServeHTTP)
+		r.Mount("/request", httpProxyHandler)
 	})
 
 	return r

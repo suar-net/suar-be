@@ -7,11 +7,11 @@ import (
 
 // DTO for incoming JSON requests.
 type DTORequest struct {
-	Method  string              `json:"method"`
-	URL     string              `json:"url"`
+	Method  string              `json:"method" validate:"required,httpmethod"`
+	URL     string              `json:"url" validate:"required,url"`
 	Headers map[string][]string `json:"headers"`
 	Body    json.RawMessage     `json:"body,omitempty"`
-	Timeout int                 `json:"timeout"`
+	Timeout int                 `json:"timeout" validate:"gte=0,lte=90000"` // 0 means default, max 90s
 }
 
 // DTO for outgoing JSON responses.
