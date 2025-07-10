@@ -1,4 +1,4 @@
-package proxy
+package service
 
 import (
 	"bytes"
@@ -40,10 +40,10 @@ type OutboundRequest struct {
 }
 
 var blockedHeaders = map[string]bool{
-	"Authorization": true,
-	"Cookie":        true,
+	"Authorization":       true,
+	"Cookie":              true,
 	"Proxy-Authorization": true,
-	"X-Forwarded-For": true,
+	"X-Forwarded-For":     true,
 }
 
 // isPrivateIP checks if a given IP address is private.
@@ -59,7 +59,6 @@ func isPrivateIP(ip net.IP) bool {
 	}
 	return false
 }
-
 
 func newOutboundRequest(dto *model.DTORequest) (*OutboundRequest, error) {
 	// HTTP Method Validation
@@ -128,9 +127,9 @@ type HTTPProxyService struct {
 func NewHTTPProxyService() *HTTPProxyService {
 	// Create a custom transport with optimized settings
 	transport := &http.Transport{
-		MaxIdleConns:        100,
-		IdleConnTimeout:     90 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
