@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/suar-net/suar-be/internal/config"
 )
 
 func ConnectDB(cfg config.DBConfig) (*sql.DB, error) {
-	db, err := sql.Open("postgres", cfg.DSN)
+	db, err := sql.Open("pgx", cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %v", err)
 	}
