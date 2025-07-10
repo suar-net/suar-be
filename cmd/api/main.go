@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv" // Import godotenv
 	"github.com/suar-net/suar-be/internal/config"
 	"github.com/suar-net/suar-be/internal/database"
 	"github.com/suar-net/suar-be/internal/handler"
@@ -16,6 +17,11 @@ import (
 )
 
 func main() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using environment variables from OS")
+	}
+
 	// Create a new logger
 	logger := log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 
