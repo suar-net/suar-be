@@ -1,53 +1,69 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	// Import your internal packages
+	"github.com/suar-net/suar-be/internal/config"
+	"github.com/suar-net/suar-be/internal/database"
 	"github.com/suar-net/suar-be/internal/handler"
-	proxy "github.com/suar-net/suar-be/internal/service"
+	"github.com/suar-net/suar-be/internal/service"
 )
 
 func main() {
 	// Create a new logger
-	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
+	logger := log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 
-	// --- 1. Initialize Dependencies ---
-	// Create an instance of our core proxy/requester service.
-	proxyService := proxy.NewHTTPProxyService()
-
-	// --- 2. Setup Router ---
-	// Call the SetupRouter function from the handler package, injecting the service and logger.
-	// This gives the router and its handlers access to the business logic.
-	router := handler.SetupRouter(proxyService, logger)
-
-	// --- 3. Start the Server ---
-	// Get port from environment variable, with a fallback to 8080
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	// We'll use a server instance for more control
-	server := &http.Server{
-		Addr:    ":" + port,
-		Handler: router,
-		// Good practice: Set timeouts to avoid resource leaks.
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
-
-	log.Printf("Starting server on http://localhost:%s", port)
-
-	// http.ListenAndServe starts the server. We wrap it in log.Fatal
-	// so that if the server fails to start for any reason (e.g., port is busy),
-	// the error will be logged, and the application will exit.
-	err := server.ListenAndServe()
+	// load configuration
+	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		logger.Fatalf("Failed to load configuration: %v", err)
 	}
+
+	// connect to database
+	db, err := database.ConnectDB(cfg.DB)
+	if err != nil {
+		logger.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
+	logger.Println("Succesfully connected to database")
+
+	httpProxyService := service.NewHTTPProxyService()
+	router := handler.SetupRouter(*httpProxyService, db, logger)
+
+	server := &http.Server{
+		Addr:         ":" + cfg.Server.Port,
+		Handler:      router,
+		ReadTimeout:  cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout,
+		IdleTimeout:  cfg.Server.IdleTimeout,
+	}
+
+	go func() {
+		logger.Printf("Server starting on port %s", cfg.Server.Port)
+		err := server.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("Cannot run server on port %s: %v", cfg.Server.Port, err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	logger.Println("Shut down the server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = server.Shutdown(ctx)
+	if err != nil {
+		logger.Fatalf("Server shutdown failed: %v", err)
+	}
+	logger.Println("server successfully shut down")
 }
