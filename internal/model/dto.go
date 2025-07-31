@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-// DTO for incoming JSON requests.
+// DTO for incoming HTTP requests
+// Change incoming request body from JSON to http request format
 type DTORequest struct {
 	Method  string              `json:"method" validate:"required,httpmethod"`
 	URL     string              `json:"url" validate:"required,url"`
@@ -14,7 +15,8 @@ type DTORequest struct {
 	Timeout int                 `json:"timeout" validate:"gte=0,lte=90000"` // 0 means default, max 90s
 }
 
-// DTO for outgoing JSON responses.
+// DTO for outgoing JSON responses
+// Change incoming http response from complex object to simplified version
 type DTOResponse struct {
 	StatusCode int                 `json:"status_code"`
 	Duration   time.Duration       `json:"duration"`

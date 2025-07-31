@@ -40,7 +40,7 @@ type OutboundRequest struct {
 }
 
 var blockedHeaders = map[string]bool{
-	"Authorization":       true,
+	"Authorization":       false,
 	"Cookie":              true,
 	"Proxy-Authorization": true,
 	"X-Forwarded-For":     true,

@@ -1,4 +1,3 @@
-// File baru: internal/handler/health_handler.go
 package handler
 
 import (
@@ -32,7 +31,7 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	// Ping database untuk memeriksa koneksi
 	if err := h.db.PingContext(ctx); err != nil {
 		h.logger.Printf("Health check failed: database connection error: %v", err)
-		
+
 		// Gunakan helper yang sudah kita buat!
 		respondWithError(w, http.StatusServiceUnavailable, "Database connection failed")
 		return

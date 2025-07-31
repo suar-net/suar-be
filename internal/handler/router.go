@@ -34,13 +34,13 @@ func SetupRouter(
 
 	// --- Inisialisasi Semua Handler ---
 	httpProxyHandler := NewHTTPProxyHandler(&httpProxyService, logger)
-	healthHandler := NewHealthHandler(db, logger) // <-- Inisialisasi handler baru
+	healthHandler := NewHealthHandler(db, logger)
 
 	// --- Definisi Rute ---
 	r.Route("/api/v1", func(r chi.Router) {
 		// Mount handler untuk endpoint yang berbeda
 		r.Mount("/request", httpProxyHandler)
-		r.Get("/healthcheck", healthHandler.Check) // <-- Gunakan handler yang sudah bersih
+		r.Get("/healthcheck", healthHandler.Check)
 	})
 
 	return r
