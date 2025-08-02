@@ -7,17 +7,14 @@ import (
 	"github.com/suar-net/suar-be/internal/model"
 )
 
-// requestRepository is the implementation of IRequestRepository.
 type requestRepository struct {
 	db *sql.DB
 }
 
-// NewRequestRepository is the constructor for requestRepository.
 func NewRequestRepository(db *sql.DB) IRequestRepository {
 	return &requestRepository{db: db}
 }
 
-// Create inserts a new request record into the database.
 func (r *requestRepository) Create(ctx context.Context, request *model.Request) error {
 	query := `
 		INSERT INTO request_history (user_id, request_method, request_url, request_headers, request_body, response_status_code, response_headers, response_body, response_size, duration_ms)
@@ -35,11 +32,9 @@ func (r *requestRepository) Create(ctx context.Context, request *model.Request) 
 		request.ResponseSize,
 		request.DurationMs,
 	)
-
 	return err
 }
 
-// GetByUserID retrieves all request history for a specific user.
 func (r *requestRepository) GetByUserID(ctx context.Context, userID int) ([]*model.Request, error) {
 	query := `
 		SELECT id, user_id, executed_at, request_method, request_url, request_headers, request_body, response_status_code, response_headers, response_body, response_size, duration_ms

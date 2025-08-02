@@ -17,27 +17,22 @@ type IRequestRepository interface {
 	GetByUserID(ctx context.Context, userID int) ([]*model.Request, error)
 }
 
-type IRepository interface {
-	User() IUserRepository
-	Request() IRequestRepository
-}
-
 type Repository struct {
-	user    IUserRepository
-	request IRequestRepository
+	userRepo    IUserRepository
+	requestRepo IRequestRepository
 }
 
 func NewRepository(db *sql.DB) *Repository {
 	return &Repository{
-		user:    NewUserRepository(db),
-		request: NewRequestRepository(db),
+		userRepo:    NewUserRepository(db),
+		requestRepo: NewRequestRepository(db),
 	}
 }
 
-func (r *Repository) User() IUserRepository {
-	return r.user
+func (r *Repository) UserRepo() IUserRepository {
+	return r.userRepo
 }
 
-func (r *Repository) Request() IRequestRepository {
-	return r.request
+func (r *Repository) RequestRepo() IRequestRepository {
+	return r.requestRepo
 }
