@@ -17,7 +17,7 @@ func NewUserRepository(db *sql.DB) IUserRepository {
 
 func (r *userRepository) Create(ctx context.Context, user *model.User) (int, error) {
 	query := `
-		INSERT INTO users (full_name, email, password_hash)
+		INSERT INTO users (username, email, password_hash)
 		VALUES ($1, $2, $3)
 		RETURNING id`
 
@@ -32,7 +32,7 @@ func (r *userRepository) Create(ctx context.Context, user *model.User) (int, err
 
 func (r *userRepository) GetByEmail(ctx context.Context, email string) (*model.User, error) {
 	query := `
-		SELECT id, full_name, email, password_hash, created_at, updated_at
+		SELECT id, username, email, password_hash, created_at, updated_at
 		FROM users
 		WHERE email = $1`
 
