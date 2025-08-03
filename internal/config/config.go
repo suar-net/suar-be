@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Server ServerConfig
 	DB     DBConfig
+	JWT    JWTConfig
 }
 
 type ServerConfig struct {
@@ -27,6 +28,11 @@ type DBConfig struct {
 	Name    string
 	SSLMode string
 	DSN     string
+}
+
+type JWTConfig struct {
+	SecretKey            string
+	AccessTokenExpiresIn time.Duration
 }
 
 func LoadConfig() (*Config, error) {
@@ -54,9 +60,25 @@ func LoadConfig() (*Config, error) {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	jwtSecret := os.Getenv("JWT_SECRET_KEY")
+	if jwtSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET_KEY environment variable not set")
+	}
+
+	accessTokenExpMin, err := strconv.Atoi(os.Getenv("ACCESS_TOKEN_EXPIRATION_MINUTES"))
+	if err != nil {
+		accessTokenExpMin = 15
+	}
+
+	jwtConf := JWTConfig{
+		SecretKey:            jwtSecret,
+		AccessTokenExpiresIn: time.Duration(accessTokenExpMin) * time.Minute,
+	}
+
 	return &Config{
 		Server: serverConfig,
 		DB:     dBConfig,
+		JWT:    jwtConf,
 	}, nil
 
 }

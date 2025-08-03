@@ -36,13 +36,24 @@ func SetupRouter(
 
 	// --- Inisialisasi Semua Handler ---
 	requestHandler := NewRequestHandelr(service.RequestService(), logger)
+	authHandler := NewAuthHandler(service.AuthService(), logger)
 	healthHandler := NewHealthHandler(db, logger)
 
-	// --- Definisi Rute ---
+	// --- Inisialisasi Middleware ---
+	authMiddleware := NewAuthMiddleware(service.AuthService(), logger)
+
 	r.Route("/api/v1", func(r chi.Router) {
-		// Mount handler untuk endpoint yang berbeda
-		r.Mount("/request", requestHandler)
 		r.Get("/healthcheck", healthHandler.Check)
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/register", authHandler.Register)
+			r.Post("/login", authHandler.Login)
+			r.Post("/request", requestHandler.ServeHTTP)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware.Authenticate)
+
+		})
 	})
 
 	return r

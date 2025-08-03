@@ -41,7 +41,7 @@ func main() {
 	logger.Println("Succesfully connected to database")
 
 	repository := repository.NewRepository(db)
-	service := service.NewService(*repository)
+	service := service.NewService(*repository, cfg.JWT)
 	router := handler.SetupRouter(*repository, *service, db, logger)
 
 	server := &http.Server{
