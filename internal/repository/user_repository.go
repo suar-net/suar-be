@@ -22,7 +22,7 @@ func (r *userRepository) Create(ctx context.Context, user *model.User) (int, err
 		RETURNING id`
 
 	var userID int
-	err := r.db.QueryRowContext(ctx, query, user.FullName, user.Email,
+	err := r.db.QueryRowContext(ctx, query, user.Username, user.Email,
 		user.PasswordHash).Scan((&userID))
 	if err != nil {
 		return 0, err
@@ -39,7 +39,7 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*model.U
 	var user model.User
 	err := r.db.QueryRowContext(ctx, query, email).Scan(
 		&user.ID,
-		&user.FullName,
+		&user.Username,
 		&user.Email,
 		&user.PasswordHash,
 		&user.CreatedAt,
