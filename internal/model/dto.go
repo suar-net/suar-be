@@ -8,7 +8,7 @@ import (
 // DTO for incoming HTTP requests
 // Change incoming request body from JSON to http request format
 type DTORequest struct {
-	Method  string              `json:"method" validate:"required,httpmethod"`
+	Method  string              `json:"method" validate:"required"`
 	URL     string              `json:"url" validate:"required,url"`
 	Headers map[string][]string `json:"headers"`
 	Body    json.RawMessage     `json:"body,omitempty"`

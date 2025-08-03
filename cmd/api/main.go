@@ -13,6 +13,7 @@ import (
 	"github.com/suar-net/suar-be/internal/config"
 	"github.com/suar-net/suar-be/internal/database"
 	"github.com/suar-net/suar-be/internal/handler"
+	"github.com/suar-net/suar-be/internal/repository"
 	"github.com/suar-net/suar-be/internal/service"
 )
 
@@ -39,8 +40,9 @@ func main() {
 	defer db.Close()
 	logger.Println("Succesfully connected to database")
 
-	httpProxyService := service.NewHTTPProxyService()
-	router := handler.SetupRouter(*httpProxyService, db, logger)
+	repository := repository.NewRepository(db)
+	service := service.NewService(*repository)
+	router := handler.SetupRouter(*repository, *service, db, logger)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.Server.Port,

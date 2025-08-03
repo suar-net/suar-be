@@ -7,13 +7,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/suar-net/suar-be/internal/repository"
 	"github.com/suar-net/suar-be/internal/service"
 )
 
 // SetupRouter creates the main Chi router for the application.
 // add necessary service by inject it into the handlers.
 func SetupRouter(
-	httpProxyService service.HTTPProxyService,
+	repository repository.Repository,
+	service service.Service,
 	db *sql.DB,
 	logger *log.Logger,
 ) *chi.Mux {
@@ -33,13 +35,13 @@ func SetupRouter(
 	))
 
 	// --- Inisialisasi Semua Handler ---
-	httpProxyHandler := NewHTTPProxyHandler(&httpProxyService, logger)
+	requestHandler := NewRequestHandelr(service.RequestService(), logger)
 	healthHandler := NewHealthHandler(db, logger)
 
 	// --- Definisi Rute ---
 	r.Route("/api/v1", func(r chi.Router) {
 		// Mount handler untuk endpoint yang berbeda
-		r.Mount("/request", httpProxyHandler)
+		r.Mount("/request", requestHandler)
 		r.Get("/healthcheck", healthHandler.Check)
 	})
 
