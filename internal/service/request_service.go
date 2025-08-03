@@ -13,10 +13,11 @@ import (
 	"time"
 
 	"github.com/suar-net/suar-be/internal/model"
+	"github.com/suar-net/suar-be/internal/repository"
 )
 
 const (
-	maxResponseBodySize   = 10 * 1024 * 1024 // 10 MB
+	maxResponseBodySize   = 10 * 1024 * 1024
 	defaultRequestTimeout = 30 * time.Second
 	maxRequestTimeout     = 90 * time.Second
 )
@@ -31,14 +32,6 @@ var allowedMethods = map[string]bool{
 	http.MethodOptions: true,
 }
 
-type OutboundRequest struct {
-	Method  string
-	URL     *url.URL
-	Headers http.Header
-	Body    []byte
-	Timeout time.Duration
-}
-
 var blockedHeaders = map[string]bool{
 	"Authorization":       false,
 	"Cookie":              true,
@@ -46,7 +39,6 @@ var blockedHeaders = map[string]bool{
 	"X-Forwarded-For":     true,
 }
 
-// isPrivateIP checks if a given IP address is private.
 func isPrivateIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() {
 		return true
@@ -60,7 +52,38 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-func newOutboundRequest(dto *model.DTORequest) (*OutboundRequest, error) {
+type OutboundRequest struct {
+	Method  string
+	URL     *url.URL
+	Headers http.Header
+	Body    []byte
+	Timeout time.Duration
+}
+
+type RequestService struct {
+	repository repository.IRequestRepository
+	httpClient *http.Client
+}
+
+func NewRequestService(r repository.IRequestRepository) *RequestService {
+	transport := &http.Transport{
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	httpClient := &http.Client{
+		Transport: transport,
+	}
+
+	return &RequestService{
+		repository: r,
+		httpClient: httpClient,
+	}
+}
+
+func (rs RequestService) CreateOutboundRequest(dto *model.DTORequest) (*OutboundRequest, error) {
 	// HTTP Method Validation
 	dto.Method = strings.ToUpper(dto.Method)
 	if !allowedMethods[dto.Method] {
@@ -120,37 +143,49 @@ func newOutboundRequest(dto *model.DTORequest) (*OutboundRequest, error) {
 	return request, nil
 }
 
-type HTTPProxyService struct {
-	httpClient *http.Client
-}
+func (rs RequestService) HttpResponseToDTOResponse(resp *http.Response, duration time.Duration, timestamp time.Time) (*model.DTOResponse, error) {
+	defer resp.Body.Close()
 
-func NewHTTPProxyService() *HTTPProxyService {
-	// Create a custom transport with optimized settings
-	transport := &http.Transport{
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+	headers := make(map[string][]string)
+	for key, values := range resp.Header {
+		headers[key] = values
 	}
 
-	return &HTTPProxyService{
-		httpClient: &http.Client{
-			Transport: transport,
-		},
-	}
-}
+	limitedReader := &io.LimitedReader{R: resp.Body, N: maxResponseBodySize}
+	bodyBytes, err := io.ReadAll(limitedReader)
 
-func (s *HTTPProxyService) ProcessRequest(ctx context.Context, dto *model.DTORequest) (*model.DTOResponse, error) {
-	// Convert and validate the DTO to our internal request model.
-	outboundRequest, err := newOutboundRequest(dto)
+	dtoResponse := &model.DTOResponse{
+		StatusCode: resp.StatusCode,
+		Duration:   duration,
+		Timestamp:  timestamp,
+		Headers:    headers,
+	}
+
 	if err != nil {
-		return nil, err // Propagate the error
+		dtoResponse.Error = fmt.Sprintf("failed to read response body: %v", err)
+		dtoResponse.Size = 0
+		dtoResponse.Body = nil
+	} else {
+		dtoResponse.Size = int64(len(bodyBytes))
+		dtoResponse.Body = bodyBytes
+		if limitedReader.N <= 0 {
+			dtoResponse.Error = "response body truncated due to size limit"
+		}
 	}
 
-	return s.Execute(ctx, outboundRequest)
+	return dtoResponse, nil
 }
 
-func (s *HTTPProxyService) Execute(ctx context.Context, outboundRequest *OutboundRequest) (*model.DTOResponse, error) {
+func (rs RequestService) ProcessRequest(ctx context.Context, dto *model.DTORequest) (*model.DTOResponse, error) {
+	outboundRequest, err := rs.CreateOutboundRequest(dto)
+	if err != nil {
+		return nil, err
+	}
+
+	return rs.ExecuteRequest(ctx, outboundRequest)
+}
+
+func (rs RequestService) ExecuteRequest(ctx context.Context, outboundRequest *OutboundRequest) (*model.DTOResponse, error) {
 	startTime := time.Now()
 
 	reqCtx, cancel := context.WithTimeout(ctx, outboundRequest.Timeout)
@@ -176,9 +211,8 @@ func (s *HTTPProxyService) Execute(ctx context.Context, outboundRequest *Outboun
 	}
 	httpRequest.Header = outboundRequest.Headers
 
-	httpResponse, err := s.httpClient.Do(httpRequest)
+	httpResponse, err := rs.httpClient.Do(httpRequest)
 	duration := time.Since(startTime)
-	// We check for context timeout error specifically
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, fmt.Errorf("%w: %v", ErrRequestTimeout, err)
@@ -186,39 +220,9 @@ func (s *HTTPProxyService) Execute(ctx context.Context, outboundRequest *Outboun
 		return nil, fmt.Errorf("failed to execute request to target server: %w", err)
 	}
 
-	return httpResponseToDTOResponse(httpResponse, duration, startTime)
+	return rs.HttpResponseToDTOResponse(httpResponse, duration, startTime)
 }
 
-func httpResponseToDTOResponse(resp *http.Response, duration time.Duration, timestamp time.Time) (*model.DTOResponse, error) {
-	defer resp.Body.Close()
+func (rs RequestService) GetHistory() {
 
-	headers := make(map[string][]string)
-	for key, values := range resp.Header {
-		headers[key] = values
-	}
-
-	limitedReader := &io.LimitedReader{R: resp.Body, N: maxResponseBodySize}
-	bodyBytes, err := io.ReadAll(limitedReader)
-
-	dtoResponse := &model.DTOResponse{
-		StatusCode: resp.StatusCode,
-		Duration:   duration,
-		Timestamp:  timestamp,
-		Headers:    headers,
-	}
-
-	if err != nil {
-		dtoResponse.Error = fmt.Sprintf("failed to read response body: %v", err)
-		dtoResponse.Size = 0
-		dtoResponse.Body = nil
-	} else {
-		dtoResponse.Size = int64(len(bodyBytes))
-		dtoResponse.Body = bodyBytes
-		// Check if response was truncated
-		if limitedReader.N <= 0 {
-			dtoResponse.Error = "response body truncated due to size limit"
-		}
-	}
-
-	return dtoResponse, nil
 }
