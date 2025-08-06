@@ -27,11 +27,7 @@ func SetupRouter(
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(
 		cors.Options{
-			AllowedOrigins: []string{
-				"http://localhost:3000",
-				"http://localhost:5173",
-				"http://localhost:8080",
-			},
+			AllowedOrigins:   []string{"https://*", "http://*"},
 			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 			AllowCredentials: true,
