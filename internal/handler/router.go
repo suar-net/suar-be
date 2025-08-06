@@ -27,7 +27,11 @@ func SetupRouter(
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(
 		cors.Options{
-			AllowedOrigins:   []string{"*"},
+			AllowedOrigins: []string{
+				"http://localhost:3000",
+				"http://localhost:5173",
+				"http://localhost:8080",
+			},
 			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 			AllowCredentials: true,
@@ -47,8 +51,8 @@ func SetupRouter(
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", authHandler.Register)
 			r.Post("/login", authHandler.Login)
-			r.Post("/request", requestHandler.ServeHTTP)
 		})
+		r.Post("/request", requestHandler.ServeHTTP)
 
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware.Authenticate)
