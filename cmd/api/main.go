@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joho/godotenv" // Import godotenv
+	"github.com/joho/godotenv"
 	"github.com/suar-net/suar-be/internal/config"
 	"github.com/suar-net/suar-be/internal/database"
 	"github.com/suar-net/suar-be/internal/handler"

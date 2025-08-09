@@ -7,7 +7,6 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-// validate is a singleton instance of the validator.
 var validate = validator.New()
 
 // ValidationError wraps the validators.ValidationErrors to provide a more user-friendly message.
